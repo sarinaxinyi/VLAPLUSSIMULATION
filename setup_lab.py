@@ -1,21 +1,17 @@
 """
-setup_lab.py  —  Build a tabletop lab scene in Isaac Sim and save it as USD.
+setup_lab.py  —  Build an open-plan lab scene in Isaac Sim and save it as USD.
 
-Workflow:
-  1. (Optional) auto-convert URDF if the robot USD does not yet exist.
-  2. Create a new USD stage with physics, lighting, floor, and a table.
-  3. Reference the robot USD onto the table surface.
-  4. Save the composed scene to --output (default: lab_scene.usd).
+Scene layout (top-down):
+  - 12 m × 16 m × 3.5 m white room
+  - Island lab benches in two central rows
+  - Wall-mounted benches along back and side walls
+  - Simple equipment props on benches
+  - Grid of ceiling strip lights
+  - LIO2 robot placed on the floor in the navigation aisle
 
 Usage:
-    # Headless build (typical on AWS):
-    python setup_lab.py --robot-usd assets/robot.usd --output lab_scene.usd
-
-    # Auto-convert URDF first, then build:
-    python setup_lab.py --urdf path/to/robot.urdf --output lab_scene.usd
-
-    # Open the resulting scene interactively after building:
-    python setup_lab.py --robot-usd assets/robot.usd --output lab_scene.usd --gui
+    python setup_lab.py --robot-usd /path/to/LIO2.usd --output lab_scene.usd
+    python setup_lab.py --urdf /path/to/robot.urdf  --output lab_scene.usd --gui
 
 Compatible with Isaac Sim 2023.x and 4.x.
 """
@@ -46,170 +42,205 @@ def _launch_app(headless: bool):
 
 
 # ---------------------------------------------------------------------------
+# Primitive helper
+# ---------------------------------------------------------------------------
+
+def _cube(stage, path, translate, scale, color):
+    from pxr import UsdGeom, UsdPhysics, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+    c = UsdGeom.Cube.Define(stage, path)
+    c.CreateSizeAttr(1.0)
+    c.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+    xf = UsdGeom.Xformable(c)
+    xf.AddTranslateOp(D).Set(Gf.Vec3d(*translate))
+    xf.AddScaleOp(D).Set(Gf.Vec3d(*scale))
+    UsdPhysics.CollisionAPI.Apply(c.GetPrim())
+    return c
+
+
+# ---------------------------------------------------------------------------
 # Scene helpers
 # ---------------------------------------------------------------------------
 
 def _add_physics_scene(stage):
     from pxr import UsdPhysics, PhysxSchema, Gf
-    physics_scene = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
-    physics_scene.CreateGravityDirectionAttr(Gf.Vec3f(0.0, 0.0, -1.0))
-    physics_scene.CreateGravityMagnitudeAttr(9.81)
+    ps = UsdPhysics.Scene.Define(stage, "/World/PhysicsScene")
+    ps.CreateGravityDirectionAttr(Gf.Vec3f(0.0, 0.0, -1.0))
+    ps.CreateGravityMagnitudeAttr(9.81)
     PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/World/PhysicsScene"))
 
 
-def _add_room(stage, width: float = 6.0, length: float = 8.0, height: float = 3.0):
-    """
-    Build a lab room: floor, 4 walls, ceiling.
-    Room is centred at origin; floor surface at z=0.
-      width  = X axis (metres)
-      length = Y axis (metres)
-      height = Z axis (metres)
-    Scale values match actual metre dimensions (unit cube * scale = size in metres).
-    """
-    from pxr import UsdGeom, UsdPhysics, Gf
-
-    D = UsdGeom.XformOp.PrecisionDouble
-    hw, hl = width / 2.0, length / 2.0
+def _add_room(stage, width=12.0, length=16.0, height=3.5):
+    """White open-plan lab room centred at origin, floor at z=0."""
     wall_t = 0.15
+    hw, hl = width / 2.0, length / 2.0
+    WHITE      = (0.96, 0.96, 0.96)
+    FLOOR_COL  = (0.93, 0.93, 0.94)   # very light grey-white
 
-    def _static_cube(path, translate, scale, color=(0.8, 0.8, 0.8)):
-        cube = UsdGeom.Cube.Define(stage, path)
-        cube.CreateSizeAttr(1.0)
-        cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
-        xf = UsdGeom.Xformable(cube)
-        xf.AddTranslateOp(D).Set(Gf.Vec3d(*translate))
-        xf.AddScaleOp(D).Set(Gf.Vec3d(*scale))
-        UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
-
-    # Floor — 6 m × 8 m, top surface flush at z=0
-    _static_cube("/World/Room/Floor",
-                 translate=(0, 0, -wall_t / 2),
-                 scale=(width, length, wall_t),
-                 color=(0.75, 0.75, 0.78))
-
-    # Ceiling — 6 m × 8 m, bottom surface at z=height
-    _static_cube("/World/Room/Ceiling",
-                 translate=(0, 0, height + wall_t / 2),
-                 scale=(width, length, wall_t),
-                 color=(0.95, 0.95, 0.95))
-
-    # Front wall (−Y): spans full width including corners
-    _static_cube("/World/Room/WallFront",
-                 translate=(0, -hl - wall_t / 2, height / 2),
-                 scale=(width + 2 * wall_t, wall_t, height),
-                 color=(0.88, 0.88, 0.85))
-
-    # Back wall (+Y)
-    _static_cube("/World/Room/WallBack",
-                 translate=(0, hl + wall_t / 2, height / 2),
-                 scale=(width + 2 * wall_t, wall_t, height),
-                 color=(0.88, 0.88, 0.85))
-
-    # Left wall (−X): spans full length, no corner overlap needed
-    _static_cube("/World/Room/WallLeft",
-                 translate=(-hw - wall_t / 2, 0, height / 2),
-                 scale=(wall_t, length, height),
-                 color=(0.88, 0.88, 0.85))
-
-    # Right wall (+X)
-    _static_cube("/World/Room/WallRight",
-                 translate=(hw + wall_t / 2, 0, height / 2),
-                 scale=(wall_t, length, height),
-                 color=(0.88, 0.88, 0.85))
+    # Floor
+    _cube(stage, "/World/Room/Floor",
+          translate=(0, 0, -wall_t / 2),
+          scale=(width, length, wall_t),
+          color=FLOOR_COL)
+    # Ceiling
+    _cube(stage, "/World/Room/Ceiling",
+          translate=(0, 0, height + wall_t / 2),
+          scale=(width, length, wall_t),
+          color=WHITE)
+    # Front (−Y)
+    _cube(stage, "/World/Room/WallFront",
+          translate=(0, -hl - wall_t / 2, height / 2),
+          scale=(width + 2 * wall_t, wall_t, height),
+          color=WHITE)
+    # Back (+Y)
+    _cube(stage, "/World/Room/WallBack",
+          translate=(0, hl + wall_t / 2, height / 2),
+          scale=(width + 2 * wall_t, wall_t, height),
+          color=WHITE)
+    # Left (−X)
+    _cube(stage, "/World/Room/WallLeft",
+          translate=(-hw - wall_t / 2, 0, height / 2),
+          scale=(wall_t, length, height),
+          color=WHITE)
+    # Right (+X)
+    _cube(stage, "/World/Room/WallRight",
+          translate=(hw + wall_t / 2, 0, height / 2),
+          scale=(wall_t, length, height),
+          color=WHITE)
 
 
-def _add_ceiling_lights(stage, room_height: float = 3.0):
-    """Four rectangular strip lights mounted just below the ceiling."""
+def _add_ceiling_lights(stage, room_width=12.0, room_length=16.0, room_height=3.5):
+    """Grid of rectangular strip lights covering the ceiling evenly."""
     from pxr import UsdLux, UsdGeom, Gf
-
     D = UsdGeom.XformOp.PrecisionDouble
-    positions = [
-        (-1.5, -2.0), (-1.5,  2.0),
-        ( 1.5, -2.0), ( 1.5,  2.0),
-    ]
-    for i, (lx, ly) in enumerate(positions):
-        path = f"/World/Lights/CeilingLight_{i}"
-        light = UsdLux.RectLight.Define(stage, path)
-        light.CreateIntensityAttr(8000.0)
-        light.CreateWidthAttr(0.6)
-        light.CreateHeightAttr(0.15)
-        light.CreateColorAttr(Gf.Vec3f(1.0, 0.98, 0.92))  # warm white
-        xf = UsdGeom.Xformable(light)
-        xf.AddTranslateOp(D).Set(Gf.Vec3d(lx, ly, room_height - 0.05))
-        # Rotate to face downward (RectLight default faces +Z, rotate 180° around X)
-        xf.AddRotateXOp(D).Set(180.0)
+
+    # 3 columns × 4 rows of lights
+    xs = [-3.5, 0.0, 3.5]
+    ys = [-5.5, -1.8, 1.8, 5.5]
+    idx = 0
+    for lx in xs:
+        for ly in ys:
+            path = f"/World/Lights/Strip_{idx}"
+            light = UsdLux.RectLight.Define(stage, path)
+            light.CreateIntensityAttr(12000.0)
+            light.CreateWidthAttr(1.2)
+            light.CreateHeightAttr(0.15)
+            light.CreateColorAttr(Gf.Vec3f(1.0, 0.99, 0.95))  # cool white
+            xf = UsdGeom.Xformable(light)
+            xf.AddTranslateOp(D).Set(Gf.Vec3d(lx, ly, room_height - 0.05))
+            xf.AddRotateXOp(D).Set(180.0)   # face downward
+            idx += 1
+
+    # Soft fill dome to avoid pure-black shadows
+    from pxr import UsdLux
+    dome = UsdLux.DomeLight.Define(stage, "/World/Lights/AmbientFill")
+    dome.CreateIntensityAttr(200.0)
 
 
-def _add_table(stage, table_pos=(0.0, 0.0, 0.0)):
+def _add_lab_bench(stage, path_prefix, cx, cy, bench_w=1.8, bench_d=0.7,
+                   bench_h=0.9, color=(0.97, 0.97, 0.97)):
     """
-    Create a simple table:
-      - Top  : 1.2 m × 0.7 m × 0.05 m slab at table_height
-      - Legs : 4 cylinders
-
-    Returns the Z position of the tabletop surface.
+    Single lab bench (top slab + 4 legs) centred at (cx, cy).
+    Returns the top-surface Z.
     """
     from pxr import UsdGeom, UsdPhysics, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+    top_t  = 0.04
+    top_z  = bench_h - top_t / 2
+    leg_h  = bench_h - top_t
+    leg_r  = 0.03
 
-    D = UsdGeom.XformOp.PrecisionDouble   # use double precision throughout
+    _cube(stage, f"{path_prefix}/Top",
+          translate=(cx, cy, top_z),
+          scale=(bench_w, bench_d, top_t),
+          color=color)
 
-    table_height = 0.75          # metres to top surface
-    top_thickness = 0.05
-    top_z = table_height - top_thickness / 2.0   # centre of top slab
-    top_surface_z = table_height                  # where robot base sits
-
-    leg_height = table_height - top_thickness
-    leg_radius = 0.03
-    leg_offsets = [
-        ( 0.55,  0.30),
-        (-0.55,  0.30),
-        ( 0.55, -0.30),
-        (-0.55, -0.30),
-    ]
-
-    # --- tabletop: unit cube scaled to 1.2 m × 0.7 m × 0.05 m ---
-    top = UsdGeom.Cube.Define(stage, "/World/Table/Top")
-    top.CreateSizeAttr(1.0)
-    top_xf = UsdGeom.Xformable(top)
-    top_xf.AddTranslateOp(D).Set(Gf.Vec3d(table_pos[0], table_pos[1], table_pos[2] + top_z))
-    top_xf.AddScaleOp(D).Set(Gf.Vec3d(0.60, 0.35, top_thickness / 2.0))
-    UsdPhysics.CollisionAPI.Apply(top.GetPrim())
-
-    # --- legs: cylinder primitives ---
-    for i, (lx, ly) in enumerate(leg_offsets):
-        leg = UsdGeom.Cylinder.Define(stage, f"/World/Table/Leg_{i}")
-        leg.CreateRadiusAttr(leg_radius)
-        leg.CreateHeightAttr(leg_height)
-        leg_xf = UsdGeom.Xformable(leg)
-        leg_xf.AddTranslateOp(D).Set(
-            Gf.Vec3d(table_pos[0] + lx, table_pos[1] + ly, table_pos[2] + leg_height / 2.0)
-        )
+    lx_off = bench_w / 2 - 0.08
+    ly_off = bench_d / 2 - 0.06
+    for i, (dx, dy) in enumerate([(1,1),(-1,1),(1,-1),(-1,-1)]):
+        leg = UsdGeom.Cylinder.Define(stage, f"{path_prefix}/Leg_{i}")
+        leg.CreateRadiusAttr(leg_r)
+        leg.CreateHeightAttr(leg_h)
+        xf = UsdGeom.Xformable(leg)
+        xf.AddTranslateOp(D).Set(Gf.Vec3d(cx + dx * lx_off, cy + dy * ly_off, leg_h / 2))
         UsdPhysics.CollisionAPI.Apply(leg.GetPrim())
 
-    return top_surface_z
+    return bench_h
 
 
-def _add_robot(stage, robot_usd: str, surface_z: float, table_pos=(0.0, 0.0, 0.0)):
+def _add_equipment_prop(stage, path, cx, cy, base_z,
+                        w=0.3, d=0.25, h=0.35, color=(0.85, 0.87, 0.90)):
+    """Small box representing a lab instrument sitting on a bench."""
+    _cube(stage, path,
+          translate=(cx, cy, base_z + h / 2),
+          scale=(w, d, h),
+          color=color)
+
+
+def _add_monitor_prop(stage, path, cx, cy, base_z, color=(0.15, 0.15, 0.15)):
+    """Thin upright slab representing a monitor."""
+    _cube(stage, path,
+          translate=(cx, cy, base_z + 0.25),
+          scale=(0.5, 0.04, 0.35),
+          color=color)
+
+
+def _add_lab_furniture(stage):
     """
-    Reference the robot USD onto the tabletop.
-    The robot base is placed at the table surface centre.
+    Two rows of central island benches + wall benches along back and side walls.
+    Equipment props scattered on bench tops.
     """
-    from pxr import Gf, UsdGeom, Sdf
+    BENCH = (0.97, 0.97, 0.97)   # white bench top
+    EQUIP = (0.80, 0.85, 0.90)   # light-blue-grey instrument
+
+    # --- Central island rows (two rows, 3 benches each) ---
+    island_ys = [-5.0, -1.5, 2.5]   # bench centres along Y
+    for col, (ix, sign) in enumerate([(-3.0, -1), (3.0, 1)]):
+        for row, iy in enumerate(island_ys):
+            prefix = f"/World/Furniture/Island_{col}_{row}"
+            bz = _add_lab_bench(stage, prefix, ix, iy,
+                                bench_w=1.8, bench_d=0.75, color=BENCH)
+            # 2 instrument props per bench
+            _add_equipment_prop(stage, f"{prefix}/Equip_A",
+                                ix - 0.45, iy, bz, color=EQUIP)
+            _add_equipment_prop(stage, f"{prefix}/Equip_B",
+                                ix + 0.45, iy, bz, w=0.25, d=0.2, h=0.25, color=EQUIP)
+
+    # --- Back wall benches (y ≈ +7.0, along full width) ---
+    back_y = 7.0
+    for col, bx in enumerate([-4.0, -1.5, 1.5, 4.0]):
+        prefix = f"/World/Furniture/BackBench_{col}"
+        bz = _add_lab_bench(stage, prefix, bx, back_y,
+                            bench_w=1.6, bench_d=0.65, color=BENCH)
+        _add_monitor_prop(stage, f"{prefix}/Monitor", bx, back_y - 0.1, bz)
+        _add_equipment_prop(stage, f"{prefix}/Equip",
+                            bx + 0.5, back_y, bz, w=0.2, d=0.18, h=0.3,
+                            color=EQUIP)
+
+    # --- Right side wall bench (x ≈ +5.2, 2 benches) ---
+    side_x = 5.2
+    for row, sy in enumerate([-3.5, 2.0]):
+        prefix = f"/World/Furniture/SideBench_{row}"
+        bz = _add_lab_bench(stage, prefix, side_x, sy,
+                            bench_w=0.7, bench_d=1.6, color=BENCH)
+        _add_equipment_prop(stage, f"{prefix}/Equip",
+                            side_x, sy, bz, w=0.25, d=0.4, h=0.4, color=EQUIP)
+
+
+def _add_robot(stage, robot_usd: str, pos=(0.0, -3.0, 0.0)):
+    """Place the robot on the floor in the navigation aisle."""
+    from pxr import Gf, UsdGeom
+    D = UsdGeom.XformOp.PrecisionDouble
 
     robot_usd = os.path.abspath(robot_usd)
-    robot_prim_path = "/World/Robot"
+    prim = stage.DefinePrim("/World/Robot")
+    prim.GetReferences().AddReference(robot_usd)
 
-    # Add as a reference so the scene stays lightweight
-    robot_prim = stage.DefinePrim(robot_prim_path)
-    robot_prim.GetReferences().AddReference(robot_usd)
+    xf = UsdGeom.Xformable(prim)
+    xf.ClearXformOpOrder()
+    xf.AddTranslateOp(D).Set(Gf.Vec3d(*pos))
 
-    xform = UsdGeom.Xformable(robot_prim)
-    xform.ClearXformOpOrder()
-    xform.AddTranslateOp().Set(
-        Gf.Vec3d(table_pos[0], table_pos[1], surface_z)
-    )
-
-    print(f"[OK] Robot referenced at {robot_prim_path} (z={surface_z:.3f} m)")
-    return robot_prim_path
+    print(f"[OK] Robot placed at /World/Robot  pos={pos}")
 
 
 # ---------------------------------------------------------------------------
@@ -220,37 +251,26 @@ def build_scene(robot_usd: str, output_usd: str, gui: bool = False):
     app = _launch_app(headless=not gui)
 
     import omni.usd
-    import omni.kit.commands
-    from pxr import Usd, UsdGeom, Sdf
+    from pxr import UsdGeom
 
-    # New empty stage
     omni.usd.get_context().new_stage()
     stage = omni.usd.get_context().get_stage()
 
-    # Metres, Z-up
     UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
     UsdGeom.SetStageMetersPerUnit(stage, 1.0)
-
-    # World xform root
     stage.DefinePrim("/World", "Xform")
 
-    room_w, room_l, room_h = 6.0, 8.0, 3.0
-
     _add_physics_scene(stage)
-    _add_room(stage, width=room_w, length=room_l, height=room_h)
-    _add_ceiling_lights(stage, room_height=room_h)
+    _add_room(stage, width=12.0, length=16.0, height=3.5)
+    _add_ceiling_lights(stage, room_width=12.0, room_length=16.0, room_height=3.5)
+    _add_lab_furniture(stage)
+    _add_robot(stage, robot_usd, pos=(0.0, -3.0, 0.0))
 
-    table_pos = (0.0, 0.0, 0.0)
-    surface_z = _add_table(stage, table_pos=table_pos)
-    _add_robot(stage, robot_usd, surface_z=surface_z, table_pos=table_pos)
-
-    # Save
     output_usd = os.path.abspath(output_usd)
     stage.GetRootLayer().Export(output_usd)
     print(f"[OK] Scene saved to: {output_usd}")
 
     if gui:
-        # Keep the window open for inspection
         while app.is_running():
             app.update()
 
@@ -262,29 +282,21 @@ def build_scene(robot_usd: str, output_usd: str, gui: bool = False):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="Build Isaac Sim tabletop lab scene")
+    parser = argparse.ArgumentParser(description="Build Isaac Sim open-plan lab scene")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--robot-usd", help="Pre-converted robot .usd path")
     group.add_argument("--urdf", help="Robot .urdf path (auto-converts to assets/robot.usd)")
-
-    parser.add_argument(
-        "--output", default="lab_scene.usd", help="Output scene USD (default: lab_scene.usd)"
-    )
-    parser.add_argument(
-        "--gui", action="store_true", help="Open Isaac Sim GUI after building the scene"
-    )
+    parser.add_argument("--output", default="lab_scene.usd")
+    parser.add_argument("--gui", action="store_true")
     args = parser.parse_args()
 
     robot_usd = args.robot_usd
-
     if args.urdf:
-        # Auto-convert URDF → USD before building
         from convert_urdf import convert
         robot_usd = convert(args.urdf, "assets/robot.usd")
 
     if not os.path.isfile(robot_usd):
         print(f"[ERROR] Robot USD not found: {robot_usd}", file=sys.stderr)
-        print("        Run convert_urdf.py first, or pass --urdf directly.", file=sys.stderr)
         sys.exit(1)
 
     build_scene(robot_usd=robot_usd, output_usd=args.output, gui=args.gui)
