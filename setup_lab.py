@@ -185,46 +185,164 @@ def _add_monitor_prop(stage, path, cx, cy, base_z, color=(0.15, 0.15, 0.15)):
           color=color)
 
 
+def _add_hamilton_liquid_handler(stage, path, cx, cy, bz):
+    """
+    Hamilton STAR liquid handler — wide platform with a raised gantry rail and
+    a pipetting arm that rides along it.
+    """
+    from pxr import UsdGeom, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+    WHITE = (0.95, 0.95, 0.95)
+    GREY  = (0.55, 0.58, 0.62)
+    DARK  = (0.20, 0.22, 0.25)
+
+    # Deck / base platform
+    _cube(stage, f"{path}/Deck",
+          translate=(cx, cy, bz + 0.06), scale=(0.80, 0.55, 0.06), color=WHITE)
+    # Left gantry post
+    _cube(stage, f"{path}/PostL",
+          translate=(cx - 0.36, cy, bz + 0.25), scale=(0.04, 0.06, 0.25), color=GREY)
+    # Right gantry post
+    _cube(stage, f"{path}/PostR",
+          translate=(cx + 0.36, cy, bz + 0.25), scale=(0.04, 0.06, 0.25), color=GREY)
+    # Horizontal rail
+    _cube(stage, f"{path}/Rail",
+          translate=(cx, cy, bz + 0.48), scale=(0.76, 0.04, 0.03), color=GREY)
+    # Pipetting arm (rides on rail)
+    _cube(stage, f"{path}/Arm",
+          translate=(cx - 0.10, cy - 0.01, bz + 0.44), scale=(0.06, 0.50, 0.05), color=DARK)
+    # Tip waste box (front-right corner of deck)
+    _cube(stage, f"{path}/TipBox",
+          translate=(cx + 0.28, cy - 0.18, bz + 0.14), scale=(0.14, 0.14, 0.08), color=GREY)
+
+
+def _add_bruker_maldi(stage, path, cx, cy, bz):
+    """
+    Bruker rapifleX MALDI mass spectrometer — compact box with sample inlet,
+    front panel display, and venting grilles.
+    """
+    CREAM = (0.94, 0.92, 0.88)
+    DARK  = (0.18, 0.18, 0.20)
+    BLUE  = (0.40, 0.60, 0.90)
+
+    # Main body
+    _cube(stage, f"{path}/Body",
+          translate=(cx, cy, bz + 0.20), scale=(0.48, 0.38, 0.20), color=CREAM)
+    # Front display strip
+    _cube(stage, f"{path}/Display",
+          translate=(cx, cy - 0.195, bz + 0.26), scale=(0.30, 0.02, 0.08), color=BLUE)
+    # Sample inlet port (small dark cylinder on right side)
+    from pxr import UsdGeom, UsdPhysics, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+    port = UsdGeom.Cylinder.Define(stage, f"{path}/InletPort")
+    port.CreateRadiusAttr(0.025)
+    port.CreateHeightAttr(0.06)
+    port.CreateDisplayColorAttr([Gf.Vec3f(*DARK)])
+    xf = UsdGeom.Xformable(port)
+    xf.AddTranslateOp(D).Set(Gf.Vec3d(cx + 0.27, cy, bz + 0.22))
+    xf.AddRotateYOp(D).Set(90.0)
+    UsdPhysics.CollisionAPI.Apply(port.GetPrim())
+    # Vent grille strip (top)
+    _cube(stage, f"{path}/Vent",
+          translate=(cx, cy, bz + 0.41), scale=(0.44, 0.34, 0.01), color=(0.70, 0.70, 0.70))
+
+
+def _add_bruker_plate_reader(stage, path, cx, cy, bz):
+    """
+    Bruker microplate reader — flat body with a plate drawer slot on the front.
+    """
+    CREAM = (0.94, 0.92, 0.88)
+    SLOT  = (0.15, 0.15, 0.15)
+    BLUE  = (0.40, 0.60, 0.90)
+
+    # Main body
+    _cube(stage, f"{path}/Body",
+          translate=(cx, cy, bz + 0.12), scale=(0.42, 0.36, 0.12), color=CREAM)
+    # Plate drawer slot
+    _cube(stage, f"{path}/Slot",
+          translate=(cx, cy - 0.185, bz + 0.10), scale=(0.22, 0.02, 0.04), color=SLOT)
+    # Status LED
+    _cube(stage, f"{path}/LED",
+          translate=(cx + 0.17, cy - 0.185, bz + 0.15), scale=(0.02, 0.01, 0.02),
+          color=(0.20, 0.90, 0.30))
+    # Top lid (slightly raised)
+    _cube(stage, f"{path}/Lid",
+          translate=(cx, cy, bz + 0.245), scale=(0.40, 0.34, 0.01), color=(0.88, 0.88, 0.85))
+
+
+def _add_centrifuge(stage, path, cx, cy, bz):
+    """
+    Benchtop centrifuge — round body, hinged lid, status panel on front.
+    """
+    from pxr import UsdGeom, UsdPhysics, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+    CREAM = (0.93, 0.91, 0.88)
+    DARK  = (0.22, 0.22, 0.24)
+
+    # Body cylinder
+    body = UsdGeom.Cylinder.Define(stage, f"{path}/Body")
+    body.CreateRadiusAttr(0.18)
+    body.CreateHeightAttr(0.22)
+    body.CreateDisplayColorAttr([Gf.Vec3f(*CREAM)])
+    xf = UsdGeom.Xformable(body)
+    xf.AddTranslateOp(D).Set(Gf.Vec3d(cx, cy, bz + 0.14))
+    UsdPhysics.CollisionAPI.Apply(body.GetPrim())
+
+    # Lid (flat cylinder on top)
+    lid = UsdGeom.Cylinder.Define(stage, f"{path}/Lid")
+    lid.CreateRadiusAttr(0.175)
+    lid.CreateHeightAttr(0.03)
+    lid.CreateDisplayColorAttr([Gf.Vec3f(0.85, 0.85, 0.83)])
+    xf2 = UsdGeom.Xformable(lid)
+    xf2.AddTranslateOp(D).Set(Gf.Vec3d(cx, cy, bz + 0.265))
+    UsdPhysics.CollisionAPI.Apply(lid.GetPrim())
+
+    # Front panel strip
+    _cube(stage, f"{path}/Panel",
+          translate=(cx, cy - 0.185, bz + 0.10),
+          scale=(0.20, 0.01, 0.06), color=DARK)
+
+
 def _add_lab_furniture(stage):
     """
-    Two rows of central island benches + wall benches along back and side walls.
-    Equipment props scattered on bench tops.
+    Two rows of central island benches + wall benches.
+    Each bench gets a specific lab instrument instead of generic cubes.
     """
-    BENCH = (0.97, 0.97, 0.97)   # white bench top
-    EQUIP = (0.80, 0.85, 0.90)   # light-blue-grey instrument
+    BENCH = (0.97, 0.97, 0.97)
 
     # --- Central island rows (two rows, 3 benches each) ---
-    island_ys = [-5.0, -1.5, 2.5]   # bench centres along Y
-    for col, (ix, sign) in enumerate([(-3.0, -1), (3.0, 1)]):
-        for row, iy in enumerate(island_ys):
+    # Instrument assignment per (col, row):
+    #   col 0 (left,  x=-3): Hamilton | Bruker MALDI    | centrifuge
+    #   col 1 (right, x=+3): plate reader | Hamilton    | Bruker MALDI
+    island_ys = [-5.0, -1.5, 2.5]
+    instruments_left  = [_add_hamilton_liquid_handler, _add_bruker_maldi,    _add_centrifuge]
+    instruments_right = [_add_bruker_plate_reader,     _add_hamilton_liquid_handler, _add_bruker_maldi]
+
+    for col, (ix, inst_list) in enumerate([(-3.0, instruments_left),
+                                            ( 3.0, instruments_right)]):
+        for row, (iy, inst_fn) in enumerate(zip(island_ys, inst_list)):
             prefix = f"/World/Furniture/Island_{col}_{row}"
             bz = _add_lab_bench(stage, prefix, ix, iy,
                                 bench_w=1.8, bench_d=0.75, color=BENCH)
-            # 2 instrument props per bench
-            _add_equipment_prop(stage, f"{prefix}/Equip_A",
-                                ix - 0.45, iy, bz, color=EQUIP)
-            _add_equipment_prop(stage, f"{prefix}/Equip_B",
-                                ix + 0.45, iy, bz, w=0.25, d=0.2, h=0.25, color=EQUIP)
+            inst_fn(stage, f"{prefix}/Instrument", ix, iy, bz)
 
-    # --- Back wall benches (y ≈ +7.0) — skip x=-4.0 slot; NMR goes there ---
+    # --- Back wall benches (y ≈ +7.0) — x=-4.0 removed (NMR there) and x=4.0 removed by user ---
     back_y = 7.0
-    for col, bx in enumerate([-1.5, 1.5, 4.0]):
+    for col, bx in enumerate([-1.5, 1.5]):
         prefix = f"/World/Furniture/BackBench_{col}"
         bz = _add_lab_bench(stage, prefix, bx, back_y,
                             bench_w=1.6, bench_d=0.65, color=BENCH)
         _add_monitor_prop(stage, f"{prefix}/Monitor", bx, back_y - 0.1, bz)
-        _add_equipment_prop(stage, f"{prefix}/Equip",
-                            bx + 0.5, back_y, bz, w=0.2, d=0.18, h=0.3,
-                            color=EQUIP)
+        _add_bruker_plate_reader(stage, f"{prefix}/PlateReader", bx + 0.45, back_y, bz)
 
-    # --- Right side wall bench (x ≈ +5.2, 2 benches) ---
+    # --- Right side wall benches (x ≈ +5.2) ---
     side_x = 5.2
-    for row, sy in enumerate([-3.5, 2.0]):
+    for row, (sy, inst_fn) in enumerate(zip([-3.5, 2.0],
+                                             [_add_centrifuge, _add_bruker_maldi])):
         prefix = f"/World/Furniture/SideBench_{row}"
         bz = _add_lab_bench(stage, prefix, side_x, sy,
                             bench_w=0.7, bench_d=1.6, color=BENCH)
-        _add_equipment_prop(stage, f"{prefix}/Equip",
-                            side_x, sy, bz, w=0.25, d=0.4, h=0.4, color=EQUIP)
+        inst_fn(stage, f"{prefix}/Instrument", side_x, sy, bz)
 
 
 def _add_bruker_nmr(stage, cx=4.5, cy=6.5):
