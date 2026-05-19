@@ -227,6 +227,67 @@ def _add_lab_furniture(stage):
                             side_x, sy, bz, w=0.25, d=0.4, h=0.4, color=EQUIP)
 
 
+def _add_bruker_nmr(stage, cx=4.5, cy=6.5):
+    """
+    Bruker NMR spectrometer model placed at (cx, cy) — back-right corner.
+
+    Parts:
+      - Floor platform (short cylinder)
+      - Main magnet body (tall cylinder, cream-white)
+      - Top / bottom flanges (flat cylinders)
+      - Central bore cap (small dark cylinder on top)
+      - Console unit (tall dark-grey box, offset to the side)
+      - Connecting cable tray (thin flat box)
+    """
+    from pxr import UsdGeom, UsdPhysics, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+
+    CREAM  = (0.95, 0.93, 0.88)   # Bruker off-white
+    DARK   = (0.18, 0.18, 0.20)   # console / bore
+    GREY   = (0.60, 0.60, 0.62)   # flanges
+    base   = "/World/NMR"
+
+    def _cyl(path, radius, height, tz, color):
+        c = UsdGeom.Cylinder.Define(stage, path)
+        c.CreateRadiusAttr(radius)
+        c.CreateHeightAttr(height)
+        c.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+        xf = UsdGeom.Xformable(c)
+        xf.AddTranslateOp(D).Set(Gf.Vec3d(cx, cy, tz))
+        UsdPhysics.CollisionAPI.Apply(c.GetPrim())
+
+    # Floor platform
+    _cyl(f"{base}/Platform",   radius=0.52, height=0.08,  tz=0.04,  color=GREY)
+    # Bottom flange
+    _cyl(f"{base}/FlangeBot",  radius=0.50, height=0.12,  tz=0.14,  color=GREY)
+    # Main magnet cylinder
+    _cyl(f"{base}/Magnet",     radius=0.42, height=1.50,  tz=0.95,  color=CREAM)
+    # Top flange
+    _cyl(f"{base}/FlangeTop",  radius=0.50, height=0.12,  tz=1.76,  color=GREY)
+    # Top cap / bore opening (dark)
+    _cyl(f"{base}/BoreCap",    radius=0.14, height=0.10,  tz=1.87,  color=DARK)
+
+    # Console unit — tall box offset ~1.1 m to the left (-X)
+    con_x = cx - 1.1
+    _cube(stage, f"{base}/Console",
+          translate=(con_x, cy, 0.70),
+          scale=(0.55, 0.45, 0.70),
+          color=DARK)
+    # Console display panel (thin light-blue strip on front face)
+    _cube(stage, f"{base}/Display",
+          translate=(con_x, cy - 0.23, 0.85),
+          scale=(0.35, 0.02, 0.20),
+          color=(0.55, 0.75, 0.95))
+
+    # Cable tray connecting console to magnet base
+    _cube(stage, f"{base}/CableTray",
+          translate=(cx - 0.55, cy, 0.06),
+          scale=(0.55, 0.10, 0.04),
+          color=GREY)
+
+    print(f"[OK] Bruker NMR placed at ({cx}, {cy})")
+
+
 def _add_robot(stage, robot_usd: str, pos=(0.0, -3.0, 0.0)):
     """Place the robot on the floor in the navigation aisle."""
     from pxr import Gf, UsdGeom
@@ -264,6 +325,7 @@ def build_scene(robot_usd: str, output_usd: str, gui: bool = False):
     _add_room(stage, width=12.0, length=16.0, height=3.5)
     _add_ceiling_lights(stage, room_width=12.0, room_length=16.0, room_height=3.5)
     _add_lab_furniture(stage)
+    _add_bruker_nmr(stage, cx=4.5, cy=6.5)   # back-right corner
     _add_robot(stage, robot_usd, pos=(0.0, -3.0, 0.0))
 
     output_usd = os.path.abspath(output_usd)
