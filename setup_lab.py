@@ -206,9 +206,9 @@ def _add_lab_furniture(stage):
             _add_equipment_prop(stage, f"{prefix}/Equip_B",
                                 ix + 0.45, iy, bz, w=0.25, d=0.2, h=0.25, color=EQUIP)
 
-    # --- Back wall benches (y ≈ +7.0, along full width) ---
+    # --- Back wall benches (y ≈ +7.0) — skip x=-4.0 slot; NMR goes there ---
     back_y = 7.0
-    for col, bx in enumerate([-4.0, -1.5, 1.5, 4.0]):
+    for col, bx in enumerate([-1.5, 1.5, 4.0]):
         prefix = f"/World/Furniture/BackBench_{col}"
         bz = _add_lab_bench(stage, prefix, bx, back_y,
                             bench_w=1.6, bench_d=0.65, color=BENCH)
@@ -288,6 +288,38 @@ def _add_bruker_nmr(stage, cx=4.5, cy=6.5):
     print(f"[OK] Bruker NMR placed at ({cx}, {cy})")
 
 
+def _add_default_camera(stage):
+    """
+    Define a perspective camera inside the room and set it as the active viewport
+    camera so the scene opens from a useful viewpoint.
+    Position: front-centre, 1.7 m high, looking toward the back of the lab.
+    """
+    from pxr import UsdGeom, Gf
+    D = UsdGeom.XformOp.PrecisionDouble
+
+    cam = UsdGeom.Camera.Define(stage, "/World/LabCamera")
+    cam.CreateFocalLengthAttr(18.0)          # wide-angle
+    cam.CreateHorizontalApertureAttr(36.0)
+    cam.CreateClippingRangeAttr(Gf.Vec2f(0.1, 100.0))
+
+    xf = UsdGeom.Xformable(cam)
+    # Place at front-centre, eye height, facing into the lab (+Y direction)
+    xf.AddTranslateOp(D).Set(Gf.Vec3d(0.0, -7.0, 1.7))
+    # Rotate: -90° around X puts the camera looking along +Y (Isaac Sim convention)
+    xf.AddRotateXYZOp(D).Set(Gf.Vec3d(90.0, 0.0, 0.0))
+
+    # Try to activate this camera as the viewport default
+    try:
+        import omni.kit.viewport.utility as vp_util
+        vp = vp_util.get_active_viewport()
+        if vp:
+            vp.camera_path = "/World/LabCamera"
+    except Exception:
+        pass  # viewport API unavailable in pure headless mode
+
+    print("[OK] Default lab camera set at (0, -7, 1.7) facing +Y")
+
+
 def _add_robot(stage, robot_usd: str, pos=(0.0, -3.0, 0.0)):
     """Place the robot on the floor in the navigation aisle."""
     from pxr import Gf, UsdGeom
@@ -325,7 +357,8 @@ def build_scene(robot_usd: str, output_usd: str, gui: bool = False):
     _add_room(stage, width=12.0, length=16.0, height=3.5)
     _add_ceiling_lights(stage, room_width=12.0, room_length=16.0, room_height=3.5)
     _add_lab_furniture(stage)
-    _add_bruker_nmr(stage, cx=4.5, cy=6.5)   # back-right corner
+    _add_bruker_nmr(stage, cx=-4.5, cy=6.8)  # back-left corner (bench slot removed)
+    _add_default_camera(stage)
     _add_robot(stage, robot_usd, pos=(0.0, -3.0, 0.0))
 
     output_usd = os.path.abspath(output_usd)
