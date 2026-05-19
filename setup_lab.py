@@ -64,13 +64,13 @@ def _add_room(stage, width: float = 6.0, length: float = 8.0, height: float = 3.
       width  = X axis (metres)
       length = Y axis (metres)
       height = Z axis (metres)
-    All surfaces get collision so they act as static barriers.
+    Scale values match actual metre dimensions (unit cube * scale = size in metres).
     """
     from pxr import UsdGeom, UsdPhysics, Gf
 
     D = UsdGeom.XformOp.PrecisionDouble
     hw, hl = width / 2.0, length / 2.0
-    wall_t = 0.15   # wall thickness
+    wall_t = 0.15
 
     def _static_cube(path, translate, scale, color=(0.8, 0.8, 0.8)):
         cube = UsdGeom.Cube.Define(stage, path)
@@ -81,40 +81,40 @@ def _add_room(stage, width: float = 6.0, length: float = 8.0, height: float = 3.
         xf.AddScaleOp(D).Set(Gf.Vec3d(*scale))
         UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
 
-    # Floor — light grey tile
+    # Floor — 6 m × 8 m, top surface flush at z=0
     _static_cube("/World/Room/Floor",
                  translate=(0, 0, -wall_t / 2),
-                 scale=(hw, hl, wall_t / 2),
+                 scale=(width, length, wall_t),
                  color=(0.75, 0.75, 0.78))
 
-    # Ceiling — white
+    # Ceiling — 6 m × 8 m, bottom surface at z=height
     _static_cube("/World/Room/Ceiling",
                  translate=(0, 0, height + wall_t / 2),
-                 scale=(hw, hl, wall_t / 2),
+                 scale=(width, length, wall_t),
                  color=(0.95, 0.95, 0.95))
 
-    # Front wall  (−Y)
+    # Front wall (−Y): spans full width including corners
     _static_cube("/World/Room/WallFront",
                  translate=(0, -hl - wall_t / 2, height / 2),
-                 scale=(hw + wall_t, wall_t / 2, height / 2),
+                 scale=(width + 2 * wall_t, wall_t, height),
                  color=(0.88, 0.88, 0.85))
 
-    # Back wall   (+Y)
+    # Back wall (+Y)
     _static_cube("/World/Room/WallBack",
                  translate=(0, hl + wall_t / 2, height / 2),
-                 scale=(hw + wall_t, wall_t / 2, height / 2),
+                 scale=(width + 2 * wall_t, wall_t, height),
                  color=(0.88, 0.88, 0.85))
 
-    # Left wall   (−X)
+    # Left wall (−X): spans full length, no corner overlap needed
     _static_cube("/World/Room/WallLeft",
                  translate=(-hw - wall_t / 2, 0, height / 2),
-                 scale=(wall_t / 2, hl, height / 2),
+                 scale=(wall_t, length, height),
                  color=(0.88, 0.88, 0.85))
 
-    # Right wall  (+X)
+    # Right wall (+X)
     _static_cube("/World/Room/WallRight",
                  translate=(hw + wall_t / 2, 0, height / 2),
-                 scale=(wall_t / 2, hl, height / 2),
+                 scale=(wall_t, length, height),
                  color=(0.88, 0.88, 0.85))
 
 
