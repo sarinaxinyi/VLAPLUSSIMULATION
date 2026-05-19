@@ -57,39 +57,87 @@ def _add_physics_scene(stage):
     PhysxSchema.PhysxSceneAPI.Apply(stage.GetPrimAtPath("/World/PhysicsScene"))
 
 
-def _add_dome_light(stage, intensity: float = 1000.0):
-    from pxr import UsdLux
-    dome = UsdLux.DomeLight.Define(stage, "/World/Lights/DomeLight")
-    dome.CreateIntensityAttr(intensity)
-    dome.CreateTextureFormatAttr("latlong")
-
-
-def _add_distant_light(stage, intensity: float = 3000.0):
-    from pxr import UsdLux, Gf
-    import omni.kit.commands
-    omni.kit.commands.execute(
-        "CreatePrimWithDefaultXform",
-        prim_type="DistantLight",
-        prim_path="/World/Lights/DistantLight",
-        attributes={"intensity": intensity, "angle": 1.0},
-    )
-
-
-def _add_ground_plane(stage):
-    """Large flat cube as a static ground plane with collision."""
+def _add_room(stage, width: float = 6.0, length: float = 8.0, height: float = 3.0):
+    """
+    Build a lab room: floor, 4 walls, ceiling.
+    Room is centred at origin; floor surface at z=0.
+      width  = X axis (metres)
+      length = Y axis (metres)
+      height = Z axis (metres)
+    All surfaces get collision so they act as static barriers.
+    """
     from pxr import UsdGeom, UsdPhysics, Gf
 
-    cube = UsdGeom.Cube.Define(stage, "/World/GroundPlane")
-    cube.CreateSizeAttr(1.0)
-    xform = UsdGeom.Xformable(cube)
-    # 100 m × 100 m × 2 cm slab centred just below z=0
-    xform.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(0.0, 0.0, -0.01))
-    xform.AddScaleOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(50.0, 50.0, 0.01))
+    D = UsdGeom.XformOp.PrecisionDouble
+    hw, hl = width / 2.0, length / 2.0
+    wall_t = 0.15   # wall thickness
 
-    prim = cube.GetPrim()
-    UsdPhysics.CollisionAPI.Apply(prim)
-    # Make it a static rigid body so physics treats it as immovable
-    UsdPhysics.RigidBodyAPI.Apply(prim).CreateKinematicEnabledAttr(True)
+    def _static_cube(path, translate, scale, color=(0.8, 0.8, 0.8)):
+        cube = UsdGeom.Cube.Define(stage, path)
+        cube.CreateSizeAttr(1.0)
+        cube.CreateDisplayColorAttr([Gf.Vec3f(*color)])
+        xf = UsdGeom.Xformable(cube)
+        xf.AddTranslateOp(D).Set(Gf.Vec3d(*translate))
+        xf.AddScaleOp(D).Set(Gf.Vec3d(*scale))
+        UsdPhysics.CollisionAPI.Apply(cube.GetPrim())
+
+    # Floor — light grey tile
+    _static_cube("/World/Room/Floor",
+                 translate=(0, 0, -wall_t / 2),
+                 scale=(hw, hl, wall_t / 2),
+                 color=(0.75, 0.75, 0.78))
+
+    # Ceiling — white
+    _static_cube("/World/Room/Ceiling",
+                 translate=(0, 0, height + wall_t / 2),
+                 scale=(hw, hl, wall_t / 2),
+                 color=(0.95, 0.95, 0.95))
+
+    # Front wall  (−Y)
+    _static_cube("/World/Room/WallFront",
+                 translate=(0, -hl - wall_t / 2, height / 2),
+                 scale=(hw + wall_t, wall_t / 2, height / 2),
+                 color=(0.88, 0.88, 0.85))
+
+    # Back wall   (+Y)
+    _static_cube("/World/Room/WallBack",
+                 translate=(0, hl + wall_t / 2, height / 2),
+                 scale=(hw + wall_t, wall_t / 2, height / 2),
+                 color=(0.88, 0.88, 0.85))
+
+    # Left wall   (−X)
+    _static_cube("/World/Room/WallLeft",
+                 translate=(-hw - wall_t / 2, 0, height / 2),
+                 scale=(wall_t / 2, hl, height / 2),
+                 color=(0.88, 0.88, 0.85))
+
+    # Right wall  (+X)
+    _static_cube("/World/Room/WallRight",
+                 translate=(hw + wall_t / 2, 0, height / 2),
+                 scale=(wall_t / 2, hl, height / 2),
+                 color=(0.88, 0.88, 0.85))
+
+
+def _add_ceiling_lights(stage, room_height: float = 3.0):
+    """Four rectangular strip lights mounted just below the ceiling."""
+    from pxr import UsdLux, UsdGeom, Gf
+
+    D = UsdGeom.XformOp.PrecisionDouble
+    positions = [
+        (-1.5, -2.0), (-1.5,  2.0),
+        ( 1.5, -2.0), ( 1.5,  2.0),
+    ]
+    for i, (lx, ly) in enumerate(positions):
+        path = f"/World/Lights/CeilingLight_{i}"
+        light = UsdLux.RectLight.Define(stage, path)
+        light.CreateIntensityAttr(8000.0)
+        light.CreateWidthAttr(0.6)
+        light.CreateHeightAttr(0.15)
+        light.CreateColorAttr(Gf.Vec3f(1.0, 0.98, 0.92))  # warm white
+        xf = UsdGeom.Xformable(light)
+        xf.AddTranslateOp(D).Set(Gf.Vec3d(lx, ly, room_height - 0.05))
+        # Rotate to face downward (RectLight default faces +Z, rotate 180° around X)
+        xf.AddRotateXOp(D).Set(180.0)
 
 
 def _add_table(stage, table_pos=(0.0, 0.0, 0.0)):
@@ -186,9 +234,11 @@ def build_scene(robot_usd: str, output_usd: str, gui: bool = False):
     # World xform root
     stage.DefinePrim("/World", "Xform")
 
+    room_w, room_l, room_h = 6.0, 8.0, 3.0
+
     _add_physics_scene(stage)
-    _add_dome_light(stage)
-    _add_ground_plane(stage)
+    _add_room(stage, width=room_w, length=room_l, height=room_h)
+    _add_ceiling_lights(stage, room_height=room_h)
 
     table_pos = (0.0, 0.0, 0.0)
     surface_z = _add_table(stage, table_pos=table_pos)
