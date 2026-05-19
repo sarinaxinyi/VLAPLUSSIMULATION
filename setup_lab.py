@@ -76,17 +76,20 @@ def _add_distant_light(stage, intensity: float = 3000.0):
 
 
 def _add_ground_plane(stage):
-    """Infinite ground plane with collision."""
-    import omni.kit.commands
-    omni.kit.commands.execute(
-        "AddGroundPlaneCommand",
-        stage=stage,
-        planePath="/World/GroundPlane",
-        axis="Z",
-        size=1500,
-        position=(0, 0, 0),
-        color=(0.5, 0.5, 0.5),
-    )
+    """Large flat cube as a static ground plane with collision."""
+    from pxr import UsdGeom, UsdPhysics, Gf
+
+    cube = UsdGeom.Cube.Define(stage, "/World/GroundPlane")
+    cube.CreateSizeAttr(1.0)
+    xform = UsdGeom.Xformable(cube)
+    # 100 m × 100 m × 2 cm slab centred just below z=0
+    xform.AddTranslateOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(0.0, 0.0, -0.01))
+    xform.AddScaleOp(UsdGeom.XformOp.PrecisionDouble).Set(Gf.Vec3d(50.0, 50.0, 0.01))
+
+    prim = cube.GetPrim()
+    UsdPhysics.CollisionAPI.Apply(prim)
+    # Make it a static rigid body so physics treats it as immovable
+    UsdPhysics.RigidBodyAPI.Apply(prim).CreateKinematicEnabledAttr(True)
 
 
 def _add_table(stage, table_pos=(0.0, 0.0, 0.0)):
@@ -97,8 +100,9 @@ def _add_table(stage, table_pos=(0.0, 0.0, 0.0)):
 
     Returns the Z position of the tabletop surface.
     """
-    from pxr import UsdGeom, UsdPhysics, Gf, Vt
-    import omni.kit.commands
+    from pxr import UsdGeom, UsdPhysics, Gf
+
+    D = UsdGeom.XformOp.PrecisionDouble   # use double precision throughout
 
     table_height = 0.75          # metres to top surface
     top_thickness = 0.05
@@ -114,37 +118,24 @@ def _add_table(stage, table_pos=(0.0, 0.0, 0.0)):
         (-0.55, -0.30),
     ]
 
-    # --- tabletop ---
-    top_path = "/World/Table/Top"
-    omni.kit.commands.execute(
-        "CreateMeshPrimWithDefaultXform",
-        prim_type="Cube",
-        prim_path=top_path,
-    )
-    top_prim = stage.GetPrimAtPath(top_path)
-    xform = UsdGeom.Xformable(top_prim)
-    xform.ClearXformOpOrder()
-    xform.AddTranslateOp().Set(Gf.Vec3d(table_pos[0], table_pos[1], table_pos[2] + top_z))
-    xform.AddScaleOp().Set(Gf.Vec3d(0.60, 0.35, top_thickness / 2.0))
+    # --- tabletop: unit cube scaled to 1.2 m × 0.7 m × 0.05 m ---
+    top = UsdGeom.Cube.Define(stage, "/World/Table/Top")
+    top.CreateSizeAttr(1.0)
+    top_xf = UsdGeom.Xformable(top)
+    top_xf.AddTranslateOp(D).Set(Gf.Vec3d(table_pos[0], table_pos[1], table_pos[2] + top_z))
+    top_xf.AddScaleOp(D).Set(Gf.Vec3d(0.60, 0.35, top_thickness / 2.0))
+    UsdPhysics.CollisionAPI.Apply(top.GetPrim())
 
-    UsdPhysics.CollisionAPI.Apply(top_prim)
-
-    # --- legs ---
+    # --- legs: cylinder primitives ---
     for i, (lx, ly) in enumerate(leg_offsets):
-        leg_path = f"/World/Table/Leg_{i}"
-        omni.kit.commands.execute(
-            "CreateMeshPrimWithDefaultXform",
-            prim_type="Cylinder",
-            prim_path=leg_path,
-        )
-        leg_prim = stage.GetPrimAtPath(leg_path)
-        leg_xform = UsdGeom.Xformable(leg_prim)
-        leg_xform.ClearXformOpOrder()
-        leg_xform.AddTranslateOp().Set(
+        leg = UsdGeom.Cylinder.Define(stage, f"/World/Table/Leg_{i}")
+        leg.CreateRadiusAttr(leg_radius)
+        leg.CreateHeightAttr(leg_height)
+        leg_xf = UsdGeom.Xformable(leg)
+        leg_xf.AddTranslateOp(D).Set(
             Gf.Vec3d(table_pos[0] + lx, table_pos[1] + ly, table_pos[2] + leg_height / 2.0)
         )
-        leg_xform.AddScaleOp().Set(Gf.Vec3d(leg_radius, leg_radius, leg_height / 2.0))
-        UsdPhysics.CollisionAPI.Apply(leg_prim)
+        UsdPhysics.CollisionAPI.Apply(leg.GetPrim())
 
     return top_surface_z
 
